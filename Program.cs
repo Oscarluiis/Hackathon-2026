@@ -10,7 +10,18 @@ if (args.Length > 0 && args[0] == "--qti-test")
     return;
 }
 
+// Carga .env si existe (las variables ya definidas en el sistema tienen prioridad).
+DotNetEnv.Env.NoClobber().TraversePath().Load();
+
 var builder = WebApplication.CreateBuilder(args);
+
+// AUTH_USUARIO / AUTH_PASSWORD sobrescriben appsettings; si no existen se conservan los valores por defecto.
+var authOverrides = new Dictionary<string, string?>();
+if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTH_USUARIO")))
+    authOverrides["Auth:Usuario"] = Environment.GetEnvironmentVariable("AUTH_USUARIO");
+if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTH_PASSWORD")))
+    authOverrides["Auth:Password"] = Environment.GetEnvironmentVariable("AUTH_PASSWORD");
+builder.Configuration.AddInMemoryCollection(authOverrides);
 
 builder.Services.AddDbContextFactory<AppDbContext>(o =>
     o.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=hackathon.db"));

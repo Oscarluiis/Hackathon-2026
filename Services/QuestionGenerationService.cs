@@ -26,7 +26,7 @@ public class QuestionGenerationService(HttpClient http, IConfiguration config)
     {
         var key = Environment.GetEnvironmentVariable("GEMINI_API_KEY");
         if (string.IsNullOrWhiteSpace(key))
-            throw new InvalidOperationException("Falta la variable de entorno GEMINI_API_KEY.");
+            throw new InvalidOperationException("Falta GEMINI_API_KEY (variable de entorno o archivo .env).");
         var model = config["Gemini:Model"] ?? "gemini-3.8-flash";
 
         var pedido = cantidades.Where(c => c.Value > 0)
