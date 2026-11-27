@@ -1,0 +1,26 @@
+.tsw { display: inline-flex; white-space: pre; }
+
+.tsw-ch {
+    display: inline-block;
+    /* reposo: currentColor atenuado; brillo: currentColor pleno + un destello claro */
+    --tsw-base: color-mix(in srgb, currentColor 55%, transparent);
+    --tsw-peak: currentColor;
+    color: var(--tsw-base);
+    background-image: linear-gradient(90deg, transparent 0%, currentColor 50%, transparent 100%);
+    background-size: 300% 100%;
+    background-repeat: no-repeat;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: tsw-wave var(--tsw-dur, 1.8s) ease-in-out infinite;
+    /* el retraso por letra desplaza la ola de izquierda a derecha; el negativo evita esperar al inicio */
+    animation-delay: calc(var(--i) * 0.09s - var(--tsw-dur, 1.8s));
+}
+
+@keyframes tsw-wave {
+    0%, 55%, 100% { color: var(--tsw-base); transform: translateY(0); background-position: 100% 0; }
+    25%           { color: var(--tsw-peak); transform: translateY(-2px); background-position: 0% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tsw-ch { animation: none; color: currentColor; }
+}

@@ -1,0 +1,62 @@
+@page "/"
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject IDbContextFactory<AppDbContext> Factory
+
+<PageTitle>Mis Exámenes</PageTitle>
+<LoadingOverlay Visible="examenes == null" Texto="Cargando..." />
+@if (examenes != null)
+{
+    <div class="page-head">
+        <h1>Mis Exámenes</h1>
+        <a class="btn" href="/examenes/nuevo">+ Nuevo Examen</a>
+    </div>
+    @if (examenes.Count == 0)
+    {
+        <div class="card muted">Aún no has creado exámenes. Pulsa «+ Nuevo Examen» para empezar.</div>
+    }
+    else
+    {
+        <div class="card" style="padding:.5rem">
+            <table>
+                <thead><tr><th>Título</th><th>Preguntas</th><th>Creado</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var e in examenes)
+                {
+                    <tr>
+                        <td><a href="/examenes/@e.Id">@e.Titulo</a></td>
+                        <td>@e.Preguntas.Count</td>
+                        <td>@e.Creado.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                        <td style="text-align:right"><button class="btn btn-danger" @onclick="() => Eliminar(e)">Eliminar</button></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    List<Examen>? examenes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Auth.EstaAutenticado) { Nav.NavigateTo("/login"); return; }
+        await Cargar();
+    }
+
+    async Task Cargar()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        examenes = await db.Examenes.Include(e => e.Preguntas)
+            .Where(e => e.Usuario == Auth.Usuario).OrderByDescending(e => e.Creado).ToListAsync();
+    }
+
+    async Task Eliminar(Examen e)
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        db.Examenes.Remove(new Examen { Id = e.Id });
+        await db.SaveChangesAsync();
+        await Cargar();
+    }
+}

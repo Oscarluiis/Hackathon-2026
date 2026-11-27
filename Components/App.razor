@@ -1,0 +1,28 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["Hackathon-Docente-2026.styles.css"]" />
+    <ImportMap />
+    <HeadOutlet @rendermode="RenderModo" />
+</head>
+
+<body>
+    <Routes @rendermode="RenderModo" />
+    <ReconnectModal />
+    <script src="@Assets["descarga.js"]"></script>
+    <script src="@Assets["vanta-login.js"]"></script>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>
+
+@code {
+    // Toda la app en UN circuito interactivo: así AuthState (scoped) sobrevive entre páginas.
+    static readonly IComponentRenderMode RenderModo = new InteractiveServerRenderMode(prerender: false);
+}

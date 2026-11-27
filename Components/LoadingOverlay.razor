@@ -1,0 +1,15 @@
+@if (Visible)
+{
+    <div class="loading-overlay" role="alert" aria-busy="true">
+        <div class="loading-box">
+            <TextShimmerWave Texto="@Texto" />
+            @if (!string.IsNullOrEmpty(Detalle)) { <p class="muted">@Detalle</p> }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public string Texto { get; set; } = "Cargando...";
+    [Parameter] public string? Detalle { get; set; }
+}

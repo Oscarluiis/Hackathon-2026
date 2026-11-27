@@ -1,0 +1,126 @@
+@page "/examenes/nuevo"
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject IDbContextFactory<AppDbContext> Factory
+@inject PdfExtractionService Pdf
+@inject QuestionGenerationService Gen
+
+<PageTitle>Nuevo Examen</PageTitle>
+<div class="page-head"><h1>Nuevo Examen</h1><a class="btn btn-secondary" href="/">Volver</a></div>
+
+@if (error != null) { <div class="alert alert-error" role="alert">@error</div> }
+
+<div class="card">
+    <div class="field"><label for="t">Título</label><InputText id="t" @bind-Value="titulo" /></div>
+    <div class="field"><label for="d">Descripción (Opcional)</label><InputTextArea id="d" @bind-Value="descripcion" /></div>
+    <div class="field">
+        <label for="f">Material en PDF</label>
+        <InputFile id="f" OnChange="Seleccionar" multiple accept=".pdf" />
+        @if (archivos.Count > 0)
+        {
+            <ul class="archivos">
+                @foreach (var a in archivos)
+                {
+                    <li>
+                        <span class="archivo-nombre">📄 @a.Name <span class="muted">(@(a.Size / 1024) KB)</span></span>
+                        <button type="button" class="btn btn-danger btn-sm" @onclick="() => Quitar(a)" aria-label="Quitar @a.Name">Quitar</button>
+                    </li>
+                }
+            </ul>
+        }
+        <small class="muted">Si vuelves a elegir archivos, la selección anterior se reemplaza.</small>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Tipos de Pregunta</h2>
+    <p class="muted">Indica cuántas preguntas quieres de cada tipo.</p>
+    <div class="tipo-grid tipo-cab muted" aria-hidden="true">
+        <span>Tipo</span><span>Cantidad</span><span>Puntos por Pregunta</span>
+    </div>
+    @foreach (var t in Enum.GetValues<TipoPregunta>())
+    {
+        <div class="tipo-grid tipo-fila">
+            <label for="c@((int)t)" class="tipo-nombre">@t.Etiqueta()</label>
+            <div class="tipo-celda">
+                <span class="tipo-mini">Cantidad</span>
+                <input id="c@((int)t)" type="number" min="0" max="30" step="1" aria-label="Cantidad de @t.Etiqueta()" @bind="cantidades[t]" />
+            </div>
+            <div class="tipo-celda">
+                <span class="tipo-mini">Puntos por Pregunta</span>
+                <input id="p@((int)t)" type="number" min="0" step="0.25" aria-label="Puntos por Pregunta de @t.Etiqueta()" @bind="puntos[t]" />
+            </div>
+        </div>
+    }
+    <div class="field"><label for="i">Instrucciones Extra para la IA (Opcional)</label>
+        <InputTextArea id="i" @bind-Value="instrucciones" placeholder="Ej.: enfócate en el capítulo 3, nivel básico, usa ejemplos de la vida real" />
+        <small class="muted">Usa este campo para guiar el enfoque del contenido, no para definir puntajes ni cantidades.</small></div>
+</div>
+
+<button class="btn" disabled="@generando" @onclick="Generar">Generar</button>
+<LoadingOverlay Visible="generando" Texto="Generando..." Detalle="Esto puede tardar unos segundos." />
+
+@code {
+    string titulo = "", descripcion = "", instrucciones = "";
+    List<IBrowserFile> archivos = new();
+    bool generando;
+    string? error;
+    Dictionary<TipoPregunta, int> cantidades = Enum.GetValues<TipoPregunta>().ToDictionary(t => t, _ => 0);
+    Dictionary<TipoPregunta, double> puntos = Enum.GetValues<TipoPregunta>().ToDictionary(t => t, _ => 1.0);
+
+    protected override void OnInitialized()
+    {
+        if (!Auth.EstaAutenticado) { Nav.NavigateTo("/login"); return; }
+        cantidades[TipoPregunta.VerdaderoFalso] = 3;
+        cantidades[TipoPregunta.OpcionMultiple] = 5;
+    }
+
+    void Seleccionar(InputFileChangeEventArgs e) => archivos = e.GetMultipleFiles(10).ToList();
+
+    void Quitar(IBrowserFile f) => archivos.Remove(f);
+
+    async Task Generar()
+    {
+        error = null;
+        if (string.IsNullOrWhiteSpace(titulo)) { error = "El título es obligatorio."; return; }
+        if (archivos.Count == 0) { error = "Sube al menos un PDF."; return; }
+        if (cantidades.Values.Sum() == 0) { error = "Elige al menos una pregunta."; return; }
+        if (cantidades.Any(c => c.Value > 0 && puntos[c.Key] < 0)) { error = "Los puntos no pueden ser negativos."; return; }
+
+        generando = true;
+        try
+        {
+            var texto = new System.Text.StringBuilder();
+            foreach (var a in archivos)
+            {
+                await using var s = a.OpenReadStream(25 * 1024 * 1024);
+                using var ms = new MemoryStream();
+                await s.CopyToAsync(ms); ms.Position = 0;
+                texto.AppendLine(Pdf.ExtraerTexto(ms));
+            }
+            if (texto.ToString().Trim().Length < 50) { error = "No se pudo extraer texto de los PDF (¿son imágenes escaneadas?)."; return; }
+
+            var preguntas = await Gen.GenerarAsync(texto.ToString(), cantidades, instrucciones);
+            if (preguntas.Count == 0) { error = "La IA no devolvió preguntas válidas. Inténtalo de nuevo."; return; }
+            for (var i = 0; i < preguntas.Count; i++)
+            {
+                preguntas[i].Orden = i;
+                preguntas[i].Puntos = puntos[preguntas[i].Tipo];   // puntaje del formulario, nunca de la IA
+            }
+
+            var examen = new Examen
+            {
+                Titulo = titulo.Trim(), Descripcion = string.IsNullOrWhiteSpace(descripcion) ? null : descripcion,
+                Usuario = Auth.Usuario!, TextoFuente = texto.ToString(),
+                Instrucciones = string.IsNullOrWhiteSpace(instrucciones) ? null : instrucciones,
+                Preguntas = preguntas
+            };
+            await using var db = await Factory.CreateDbContextAsync();
+            db.Examenes.Add(examen);
+            await db.SaveChangesAsync();
+            Nav.NavigateTo($"/examenes/{examen.Id}");
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { generando = false; }
+    }
+}

@@ -1,0 +1,23 @@
+@inherits LayoutComponentBase
+@inject AuthState Auth
+@inject NavigationManager Nav
+
+@if (Auth.EstaAutenticado)
+{
+    <header class="topbar">
+        <a href="/" class="topbar-logo" aria-label="Inicio"><img src="logo-ceutec.png" alt="CEUTEC Ingeniería Informática" /></a>
+        <span>@Auth.Usuario · <button class="btn btn-topbar" @onclick="Salir">Salir</button></span>
+    </header>
+}
+<main class="container">@Body</main>
+<footer class="app-footer">Hackathon Docente 2026</footer>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Ocurrió un error inesperado.
+    <a href="." class="reload">Recargar</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    void Salir() { Auth.Logout(); Nav.NavigateTo("/login"); }
+}

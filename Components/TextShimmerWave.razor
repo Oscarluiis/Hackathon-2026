@@ -1,0 +1,14 @@
+@* Texto de carga con ola de brillo letra por letra. CSS puro; hereda currentColor,
+   así funciona sobre el botón primario (#95071f, texto blanco) y sobre fondo blanco. *@
+<span class="tsw" role="status" aria-label="@Texto" style="--tsw-dur:@(Duracion.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))s">
+    @foreach (var (c, i) in Texto.Select((c, i) => (c, i)))
+    {
+        <span class="tsw-ch" aria-hidden="true" style="--i:@i">@(c == ' ' ? ' ' : c)</span>
+    }
+</span>
+
+@code {
+    [Parameter, EditorRequired] public string Texto { get; set; } = "";
+    /// <summary>Duración en segundos de un ciclo completo de la ola.</summary>
+    [Parameter] public double Duracion { get; set; } = 1.8;
+}

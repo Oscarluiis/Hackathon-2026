@@ -1,0 +1,50 @@
+@page "/login"
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject ILogger<Login> Log
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Iniciar Sesión</PageTitle>
+<div id="vanta-login" class="vanta-bg" aria-hidden="true"></div>
+<div class="login-wrap">
+<div class="card login-card">
+    <h1 class="login-title">Iniciar Sesión</h1>
+    <p class="muted">Acceso para docentes</p>
+    @if (error) { <div class="alert alert-error" role="alert">Usuario o contraseña incorrectos.</div> }
+    <EditForm Model="this" OnSubmit="Entrar" FormName="login">
+        <div class="field"><label for="u">Usuario</label>
+            <InputText id="u" type="text" @bind-Value="usuario" autocomplete="username" /></div>
+        <div class="field"><label for="p">Contraseña</label>
+            <InputText id="p" type="password" @bind-Value="password" autocomplete="current-password" /></div>
+        <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center">Entrar</button>
+    </EditForm>
+</div>
+</div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { await JS.InvokeVoidAsync("vantaLogin.init", "#vanta-login"); }
+        catch (Exception ex) { Log.LogWarning(ex, "No se pudo iniciar el fondo Vanta (el login funciona igual)"); }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("vantaLogin.destroy"); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+    }
+
+    string usuario = "", password = "";
+    bool error;
+    void Entrar()
+    {
+        if (Auth.Login(usuario, password))
+        {
+            Nav.NavigateTo("/");
+        }
+        else { error = true; }
+    }
+}

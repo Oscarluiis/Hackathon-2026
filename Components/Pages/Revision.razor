@@ -1,0 +1,183 @@
+@page "/examenes/{Id:int}"
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject IDbContextFactory<AppDbContext> Factory
+@inject QuestionGenerationService Gen
+@inject QtiExportService Qti
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Revisión</PageTitle>
+<LoadingOverlay Visible="examen == null" Texto="Cargando..." />
+<LoadingOverlay Visible="regenerando != null" Texto="Regenerando..." Detalle="Esto puede tardar unos segundos." />
+@if (examen != null)
+{
+    <div class="page-head">
+        <div><h1>@examen.Titulo</h1><span class="muted">@examen.Preguntas.Count preguntas</span></div>
+        <div style="display:flex;gap:.5rem">
+            <a class="btn btn-secondary" href="/">Volver</a>
+            <button class="btn btn-secondary" @onclick="Guardar">Guardar Cambios</button>
+            <button class="btn" @onclick="Exportar">Exportar a Canvas (.zip)</button>
+        </div>
+    </div>
+    @if (mensaje != null) { <div class="alert @(esError ? "alert-error" : "alert-success")" role="status">@mensaje</div> }
+
+    @foreach (var p in examen.Preguntas.OrderBy(x => x.Orden))
+    {
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+                <h3>@(examen.Preguntas.OrderBy(x => x.Orden).ToList().IndexOf(p) + 1). @p.Tipo.Etiqueta()</h3>
+                <span>
+                    <button class="btn btn-secondary" disabled="@(regenerando != null)" @onclick="() => Regenerar(p)">Regenerar</button>
+                    <button class="btn btn-danger" @onclick="() => Eliminar(p)">Eliminar</button>
+                </span>
+            </div>
+            <div class="field" style="max-width:160px"><label for="pt@(p.GetHashCode())">Puntos</label>
+                <input id="pt@(p.GetHashCode())" type="number" min="0" step="0.25" @bind="p.Puntos" @bind:event="onchange" /></div>
+            <div class="field"><label>Enunciado</label><textarea @bind="p.Enunciado" @bind:event="onchange"></textarea></div>
+
+            @switch (p.Tipo)
+            {
+                case TipoPregunta.VerdaderoFalso:
+                case TipoPregunta.OpcionMultiple:
+                    <label>Opciones (marca la correcta)</label>
+                    @foreach (var o in p.Opciones.OrderBy(x => x.Orden))
+                    {
+                        <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:.4rem">
+                            <input type="radio" name="c@(p.GetHashCode())" checked="@o.EsCorrecta" @onchange="() => Marcar(p, o)" aria-label="Correcta" />
+                            <input type="text" @bind="o.Texto" @bind:event="onchange" readonly="@(p.Tipo == TipoPregunta.VerdaderoFalso)" />
+                            @if (p.Tipo == TipoPregunta.OpcionMultiple)
+                            {
+                                <button class="btn btn-danger" @onclick="() => p.Opciones.Remove(o)" aria-label="Quitar opción">✕</button>
+                            }
+                        </div>
+                    }
+                    @if (p.Tipo == TipoPregunta.OpcionMultiple)
+                    {
+                        <button class="btn btn-secondary" @onclick="() => p.Opciones.Add(new Opcion { Orden = p.Opciones.Count })">+ Opción</button>
+                    }
+                    break;
+                case TipoPregunta.Emparejamiento:
+                    <label>Pares (deja la premisa vacía para un distractor)</label>
+                    @foreach (var o in p.Opciones.OrderBy(x => x.Orden))
+                    {
+                        <div style="display:flex;gap:.6rem;margin-bottom:.4rem">
+                            <input type="text" placeholder="Premisa" @bind="o.Texto" @bind:event="onchange" />
+                            <input type="text" placeholder="Respuesta" @bind="o.Pareja" @bind:event="onchange" />
+                            <button class="btn btn-danger" @onclick="() => p.Opciones.Remove(o)" aria-label="Quitar par">✕</button>
+                        </div>
+                    }
+                    <button class="btn btn-secondary" @onclick="() => p.Opciones.Add(new Opcion { Orden = p.Opciones.Count, EsCorrecta = true })">+ Par</button>
+                    break;
+                case TipoPregunta.Ordenamiento:
+                    <label>Elementos en el Orden Correcto</label>
+                    @foreach (var o in p.Opciones.OrderBy(x => x.Orden))
+                    {
+                        <div style="display:flex;gap:.6rem;margin-bottom:.4rem;align-items:center">
+                            <span class="muted" style="width:1.5rem">@(o.Orden + 1).</span>
+                            <input type="text" @bind="o.Texto" @bind:event="onchange" />
+                            <button class="btn btn-secondary" @onclick="() => Mover(p, o, -1)" aria-label="Subir">↑</button>
+                            <button class="btn btn-secondary" @onclick="() => Mover(p, o, 1)" aria-label="Bajar">↓</button>
+                            <button class="btn btn-danger" @onclick="() => { p.Opciones.Remove(o); Renumerar(p); }" aria-label="Quitar">✕</button>
+                        </div>
+                    }
+                    <button class="btn btn-secondary" @onclick="() => p.Opciones.Add(new Opcion { Orden = p.Opciones.Count, EsCorrecta = true })">+ Elemento</button>
+                    break;
+                default:
+                    <p class="muted">Sin calificación automática: se corrige manualmente en Canvas.</p>
+                    break;
+            }
+
+            <div class="field" style="margin-top:1rem"><label>Retroalimentación (cuando la respuesta es incorrecta)</label>
+                <textarea @bind="p.Retroalimentacion" @bind:event="onchange"></textarea></div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    AppDbContext? db;
+    Examen? examen;
+    Pregunta? regenerando;
+    string? mensaje; bool esError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Auth.EstaAutenticado) { Nav.NavigateTo("/login"); return; }
+        db = await Factory.CreateDbContextAsync();
+        examen = await db.Examenes.Include(e => e.Preguntas).ThenInclude(p => p.Opciones)
+            .FirstOrDefaultAsync(e => e.Id == Id && e.Usuario == Auth.Usuario);
+        if (examen == null) Nav.NavigateTo("/");
+    }
+
+    void Marcar(Pregunta p, Opcion o) { foreach (var x in p.Opciones) x.EsCorrecta = x == o; }
+
+    void Renumerar(Pregunta p) { var i = 0; foreach (var x in p.Opciones.OrderBy(x => x.Orden)) x.Orden = i++; }
+
+    void Mover(Pregunta p, Opcion o, int d)
+    {
+        var l = p.Opciones.OrderBy(x => x.Orden).ToList();
+        var i = l.IndexOf(o); var j = i + d;
+        if (j < 0 || j >= l.Count) return;
+        (l[i].Orden, l[j].Orden) = (l[j].Orden, l[i].Orden);
+    }
+
+    async Task Guardar()
+    {
+        await db!.SaveChangesAsync();
+        Aviso("Cambios guardados.");
+    }
+
+    async Task Eliminar(Pregunta p)
+    {
+        db!.Preguntas.Remove(p);
+        await db.SaveChangesAsync();
+        Aviso("Pregunta eliminada.");
+    }
+
+    async Task Regenerar(Pregunta p)
+    {
+        regenerando = p;
+        try
+        {
+            var nuevas = await Gen.GenerarAsync(examen!.TextoFuente ?? "", new() { [p.Tipo] = 1 }, examen.Instrucciones);
+            var n = nuevas.FirstOrDefault();
+            if (n == null) { Aviso("La IA no devolvió una pregunta válida.", true); return; }
+            db!.Opciones.RemoveRange(p.Opciones);
+            p.Opciones.Clear();
+            p.Enunciado = n.Enunciado; p.Retroalimentacion = n.Retroalimentacion;
+            foreach (var o in n.Opciones) p.Opciones.Add(o);
+            await db.SaveChangesAsync();
+            Aviso("Pregunta regenerada.");
+        }
+        catch (Exception ex) { Aviso(ex.Message, true); }
+        finally { regenerando = null; }
+    }
+
+    async Task Exportar()
+    {
+        try
+        {
+            await db!.SaveChangesAsync();
+            if (examen!.Preguntas.Count == 0) { Aviso("El examen no tiene preguntas.", true); return; }
+            var bytes = Qti.Exportar(examen);
+            using var stream = new MemoryStream(bytes);
+            using var Ref = new DotNetStreamReference(stream);
+            await JS.InvokeVoidAsync("descargarArchivo", NombreArchivo(examen.Titulo), Ref);
+            Aviso("Exportación lista: importa el .zip en Canvas.");
+        }
+        catch (Exception ex) { Aviso("No se pudo exportar: " + ex.Message, true); }
+    }
+
+    static string NombreArchivo(string titulo)
+    {
+        var norm = titulo.Normalize(System.Text.NormalizationForm.FormD)
+            .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark);
+        var limpio = System.Text.RegularExpressions.Regex.Replace(new string(norm.ToArray()), "[^A-Za-z0-9]+", "_").Trim('_');
+        return (limpio.Length == 0 ? "examen" : limpio) + ".zip";
+    }
+
+    void Aviso(string m, bool error = false) { mensaje = m; esError = error; }
+
+    public async ValueTask DisposeAsync() { if (db != null) await db.DisposeAsync(); }
+}
