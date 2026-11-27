@@ -5,6 +5,7 @@
 
 # dotenv files
 .env
+!.env.example
 
 # User-specific files
 *.rsuser
@@ -486,5 +487,6 @@ $RECYCLE.BIN/
 *.db-shm
 *.db-wal
 .env
+!.env.example
 *.zip
 .claude/
