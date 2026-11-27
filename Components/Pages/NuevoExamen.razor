@@ -71,8 +71,6 @@
     protected override void OnInitialized()
     {
         if (!Auth.EstaAutenticado) { Nav.NavigateTo("/login"); return; }
-        cantidades[TipoPregunta.VerdaderoFalso] = 3;
-        cantidades[TipoPregunta.OpcionMultiple] = 5;
     }
 
     void Seleccionar(InputFileChangeEventArgs e) => archivos = e.GetMultipleFiles(10).ToList();
